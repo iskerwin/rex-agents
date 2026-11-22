@@ -7,13 +7,15 @@ import os
 import sys
 import time
 
+from agents_meter.snapshot import Snapshots
+
 from rex_agents import __version__
 from rex_agents.advisor import AdvisorFeed
 from rex_agents.pane import build_pane
-from rex_agents.snapshot import Snapshots
 from rex_agents.watch import watch
 
-# Panels share one quota query a minute, as Claude's live quota allows no more.
+# Claude's and Grok's quotas are asked at most once a minute between every
+# process using agents-meter, so asking more often would only reread.
 REFRESH_SECONDS = 60
 
 
@@ -30,7 +32,7 @@ def main() -> int:
         return 2
     sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
     advisors = AdvisorFeed()
-    watch(Snapshots(), lambda snap, error, w, h: build_pane(snap, error, w, h, int(time.time()), advisors()),
+    watch(Snapshots(claude_live=True), lambda snap, error, w, h: build_pane(snap, error, w, h, int(time.time()), advisors()),
           wants_color(), REFRESH_SECONDS)
     return 0
 

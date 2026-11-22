@@ -26,7 +26,7 @@ A side panel for the [Rex](https://www.superlogical.com/rex) terminal: how much 
 ╰─────────────────────────────────────╯
 ```
 
-It needs Python 3.11 or later and [uv](https://docs.astral.sh/uv/), and nothing else: it reads the agents' own logs and logins itself, with the standard library only.
+It needs Python 3.11 or later and [uv](https://docs.astral.sh/uv/). The data comes from [agents-meter](https://github.com/iskerwin/agents-meter), a standard-library-only library `uv` installs with it.
 
 ## Install
 
@@ -59,22 +59,15 @@ The panel shows this machine's agents, so it opens only in sessions on this mach
 - **费用** (cost): today's and this month's, estimated at public API prices. The foot says how old the data is.
 - **任务** (tasks): the agents' sessions, `●` running and `○` idle, down to the panel's foot.
 
-A short panel folds to one line per agent. It refreshes every 60 seconds. Several open panels make one quota query a minute between them, shared through `~/.cache/rex-agents/snapshot.json` (mode 0600, holding account emails and project paths). Press `q` in the panel to quit it.
+A short panel folds to one line per agent. It refreshes every 60 seconds. However many panels are open, alongside any other tool using agents-meter, Claude and Grok are asked for their quota once a minute between them all. Press `q` in the panel to quit it.
 
-**Cost is an estimate, not a bill.** Tokens from the logs are priced at [public API rates](rex_agents/pricing.py); subscriptions don't pay that way. Models without a public price (such as `grok-4.7-build`) aren't counted, nor are long-context and fast-mode surcharges, so it runs a little under real API cost.
+**Cost is an estimate, not a bill.** Tokens from the logs are priced at [public API rates](https://github.com/iskerwin/agents-meter/blob/main/agents_meter/pricing.py); subscriptions don't pay that way. Models without a public price (such as `grok-4.7-build`) aren't counted, nor are long-context and fast-mode surcharges, so it runs a little under real API cost.
 
 ## Where the data comes from
 
-| | Claude Code | Codex | Grok |
-|---|---|---|---|
-| Tokens, cost, tasks | `~/.claude/projects/**/*.jsonl` | `~/.codex*/sessions`, `archived_sessions` | `~/.grok/sessions/*/*/usage.json` |
-| Quota | The usage endpoint `/usage` calls, with Claude Code's OAuth token | `codex app-server`, else the newest record in the session logs | The usage endpoint the Grok CLI calls, with its token |
-| Advisor | The session's own log, found through Rex and `~/.claude/sessions/<pid>.json` | | |
+The quotas, tokens, cost and sessions are read by [agents-meter](https://github.com/iskerwin/agents-meter#where-the-data-comes-from): which logs and endpoints, which tokens it reads and where they go, and its rules. Claude's quota comes from the live usage endpoint, with Claude Code's stored token (the macOS keychain may ask once).
 
-- Logs are read for times, models, working directories, token counts, the session titles the agents write, and, for the advisor, advisor calls, tool names and whether a tool failed. Not what was said. A failed result's first 80 characters are compared, in memory only, to tell the same error twice.
-- **Claude**: the token is read from `~/.claude/.credentials.json` or the macOS keychain (which may ask), kept in memory and sent only to `api.anthropic.com`. The endpoint is undocumented and rate-limited hard: one call a minute at most, and after an HTTP 429 the wait doubles, up to 15 minutes, or follows `Retry-After`. Meanwhile the panel keeps the last values, marked stale after 10 minutes. Other tools that call the same endpoint share its limit.
-- **Grok**: read from `~/.grok/auth.json` (written by `grok login`), never written to, sent only to `cli-chat-proxy.grok.com`. An expired login is renewed by the Grok CLI itself through `grok models`, which starts no session.
-- A missing value stays missing, never 0% or 100%. A window past its reset is dropped. No agent session is started to refresh usage, and no limit is touched.
+The advisor box reads the log of each Claude Code session in the tab, found through Rex and `~/.claude/sessions/<pid>.json`: advisor calls, model names, tool names and whether a tool failed, never what was said. A failed result's first 80 characters are compared, in memory only, to tell the same error twice.
 
 ## Develop
 
@@ -86,7 +79,7 @@ uv run --group dev pytest
 
 Unofficial, and not affiliated with Superlogical, Anthropic, OpenAI or xAI. The Claude and Grok quotas come from undocumented endpoints with the tokens stored on this machine, and may stop working at any time; check that this fits each service's terms before you use it.
 
-The quota freshness rules follow [aiusage](https://github.com/sergestack/aiusage) (MIT); no code was copied. The advisor moments follow [advisor-live](https://github.com/iskerwin/advisor-live), a Claude Code mod with a pane of its own.
+The advisor moments follow [advisor-live](https://github.com/iskerwin/advisor-live), a Claude Code mod with a pane of its own.
 
 ## License
 
