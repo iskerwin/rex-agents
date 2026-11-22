@@ -1,30 +1,10 @@
 # rex-agents
 
+English | [简体中文](README.zh-CN.md)
+
 A side panel for the [Rex](https://www.superlogical.com/rex) terminal: how much quota Claude Code, Codex and Grok have left and when it resets, the advisor of the Claude Code sessions in the tab, today's and this month's cost, and the agents running. It opens down the right edge of any tab, beside any agent or none.
 
-```text
-╭─┐Claude┌──────────────────────┐Pro┌─╮
-│ 5h    ■■■■■■■■■■■│■■■■  73%   3h23m │
-│ 7d    ■■■■■■■│■■■■■■■■  15%!! 2d21h │
-╰─────────────────────────────────────╯
-╭─┐Advisor┌────────┐Opus 5.5 → Fable┌─╮
-│ ● build 5:31                    12s │
-│ plan  ■■■■■■■■■■■■■■■■  50%       2 │
-│ error ■■■■■■■■■■■■■■■■   0%       0 │
-│ done  ■■■■■■■■■■■■■■■■  50%       2 │
-╰─────────────────────────────────────╯
-╭─┐Codex┌──────────────────────┐Team┌─╮
-│ 5h    ■■■■■■■■■■■■■■■│  96%   4h34m │
-│ 7d    ■■■■■■■■■■■■│■■■  99%    5d2h │
-╰─────────────────────────────────────╯
-╭─┐费用┌──────────────────────────────╮
-│ 今日 $25.51               本月 $635 │
-╰────────────────────────────────┘9s└─╯
-╭─┐任务┌────────────────────────┐1/2┌─╮
-│ ● Fix the login redirect         5m │
-│ ○ Release notes for 2.4         14m │
-╰─────────────────────────────────────╯
-```
+<img src="img/panel.png" width="360" alt="The Agents panel: Claude, Codex and Grok quotas, advisor moments, cost and tasks">
 
 It needs Python 3.11 or later and [uv](https://docs.astral.sh/uv/). The data comes from [agents-meter](https://github.com/iskerwin/agents-meter), a standard-library-only library `uv` installs with it.
 
