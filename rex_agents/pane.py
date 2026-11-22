@@ -156,9 +156,9 @@ def build_pane(snap: Optional[dict[str, Any]], error: Optional[str], width: int,
     advisor-live shares of the Claude Code sessions in this tab."""
     width, height = max(width, 1), max(height, 1)
     if snap is None:
-        lines: list[Line] = [[Span(error, ERROR)] if error else [Span("读取中", MUTED)]]
+        lines: list[Line] = [[Span(error, ERROR)] if error else [Span("Loading", MUTED)]]
     elif width < 24:
-        lines = [[Span("面板太窄", MUTED)]]
+        lines = [[Span("Too narrow", MUTED)]]
     else:
         lines = _layout(snap, error, width, height, now, advisors)
     lines = [fit(_merge(line), width) for line in lines[:height]]
@@ -214,9 +214,9 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
         return "—" if left is None else f"{round(left)}%"
 
     today, month = costs(snap.get("usage", {}).get("rows", []), now)
-    cost_row = _spread([Span("今日 ", MUTED), Span(money(today), None, True)],
-                       [Span("本月 ", MUTED), Span(money(month), None, True)], boxes.inner)
-    age = "刷新失败" if error else ago(now - snap["generated_at"])
+    cost_row = _spread([Span("Today ", MUTED), Span(money(today), None, True)],
+                       [Span("Month ", MUTED), Span(money(month), None, True)], boxes.inner)
+    age = "failed" if error else ago(now - snap["generated_at"])
 
     account_rows = sum(max(1, len(live(a))) + 2 for a in accounts)
     account_rows += sum(len(_moments(st)) + 3 for st in advisors)
@@ -258,10 +258,10 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
                 Span(pad_text(reset, TAIL_W - 2, True), MUTED),
             ])
         if not rows:
-            rows = [[Span(a.get("note") or "没有额度数据", MUTED)]]
+            rows = [[Span(a.get("note") or "No quota data", MUTED)]]
         plan = " · ".join(p for p in (a.get("plan") and plan_text(a["plan"]), a.get("workspace")) if p)
         out += boxes.box(a["agent"].capitalize(), BOX.get(a["agent"], OTHER_BOX), rows, plan,
-                         "过期" if stale else "", WARN)
+                         "stale" if stale else "", WARN)
         # The advisors of this tab's Claude sessions, under Claude's quota.
         if a["agent"] == "claude":
             for st in advisors:
@@ -269,7 +269,7 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
                 out += boxes.box("Advisor", BOX["advisor"], _advisor_rows(st, boxes.inner, label_w, meter_w, now),
                                  f"{st['main']} → {st['advisor']}", f"×{total}" if total else "")
 
-    out += boxes.box("费用", BOX["cost"], [cost_row], "", age, ERROR if error else TITLE)
+    out += boxes.box("Cost", BOX["cost"], [cost_row], "", age, ERROR if error else TITLE)
 
     # Running tasks first, then the newest; the box takes every row left over.
     room = max(1, height - len(out) - 2)
@@ -282,8 +282,8 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
                                   Span(t.get("title") or t["project"], MUTED if idle else None)],
                                  [Span(since, MUTED)], boxes.inner))
     if not task_rows:
-        task_rows = [[Span("没有运行中的 agent", MUTED)]]
+        task_rows = [[Span("No agents running", MUTED)]]
     task_rows += [[] for _ in range(room - len(task_rows))]
     running = sum(t["state"] == "running" for t in tasks)
-    out += boxes.box("任务", BOX["tasks"], task_rows, f"{running}/{len(tasks)}" if tasks else "")
+    out += boxes.box("Tasks", BOX["tasks"], task_rows, f"{running}/{len(tasks)}" if tasks else "")
     return out

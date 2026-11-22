@@ -43,10 +43,10 @@ def test_boxes_per_agent_then_cost_then_tasks():
     assert any(" Fable 7d " in t and "15%!!" in t for t in text)
     # A window past its reset is gone; a stale account says so and why.
     assert not any("│ 7d " in t for t in text)
-    assert any("┘过期└" in t for t in text)
+    assert any("┘stale└" in t for t in text)
     assert any("HTTP 401" in t for t in text)
     assert any("┘30s└" in t for t in text)
-    tasks = text.index(next(t for t in text if "┐任务┌" in t))
+    tasks = text.index(next(t for t in text if "┐Tasks┌" in t))
     assert "┐1/2┌" in text[tasks]
     assert "● 迁移到侧边栏" in text[tasks + 1] and "○ 旧任务" in text[tasks + 2]
     # The task box runs to the pane's foot.
@@ -56,11 +56,11 @@ def test_boxes_per_agent_then_cost_then_tasks():
 def test_a_short_pane_folds_to_a_line_per_agent():
     text = [plain(line).rstrip() for line in build_pane(snapshot(), "boom", 38, 6, NOW)]
     assert text[0] == "Claude 5h 80% · Fable 7d 15%"
-    assert text[2].endswith("刷新失败")
+    assert text[2].endswith("failed")
 
 
 def test_nothing_yet_and_failure_say_so():
-    assert plain(build_pane(None, None, 30, 2, NOW)[0]).strip() == "读取中"
+    assert plain(build_pane(None, None, 30, 2, NOW)[0]).strip() == "Loading"
     assert plain(build_pane(None, "boom", 30, 2, NOW)[0]).strip() == "boom"
 
 

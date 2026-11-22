@@ -24,11 +24,11 @@ def wants_color() -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="rex-agents", description="Rex 里的 Agents 面板：额度、advisor、费用和任务")
+    parser = argparse.ArgumentParser(prog="rex-agents", description="The Agents panel for Rex: quota, advisor, cost and tasks")
     parser.add_argument("--version", action="version", version=__version__)
     parser.parse_args()
     if not sys.stdout.isatty():
-        print("rex-agents 需要在终端里运行", file=sys.stderr)
+        print("rex-agents needs to run in a terminal", file=sys.stderr)
         return 2
     sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
     advisors = AdvisorFeed()
