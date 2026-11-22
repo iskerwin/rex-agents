@@ -3,7 +3,7 @@ import time
 import pytest
 
 from rex_agents.pane import UNLIT, build_pane, costs, even_pace_left, meter, short_label, until, window_seconds
-from rex_agents.text import line_width, plain
+from rex_agents.text import line_width, plain, to_ansi
 
 NOW = 1_795_286_000
 
@@ -93,3 +93,9 @@ def test_cost_counts_today_and_the_month_and_unpriced_is_not_zero():
     rows = [{"date": today, "cost": 1.5}, {"date": today, "cost": None}, {"date": "1999-01-01", "cost": 9}]
     assert costs(rows, NOW) == (1.5, 1.5)
     assert costs([{"date": today, "cost": None}], NOW) == (None, None)
+
+
+def test_colors_come_from_the_terminal_palette():
+    # No 24-bit or 256-color codes: the terminal's theme decides every color.
+    text = "".join(to_ansi(line, True) for line in build_pane(snapshot(), None, 40, 30, NOW))
+    assert "\x1b[" in text and "38;2;" not in text and "38;5;" not in text

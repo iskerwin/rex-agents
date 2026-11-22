@@ -14,19 +14,14 @@ from typing import Any, Optional, Sequence
 from rex_agents.text import MUTED, Line, Span, fit, line_width, pad_text, plain, plan_text, text_width
 
 
-def rgb(hex_color: str) -> str:
-    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
-    return f"38;2;{r};{g};{b}"
-
-
-# btop's default theme: each box its own muted outline, titles bright, levels
-# green to red, unlit meter cells nearly black.
-BOX = {"claude": rgb("#805252"), "codex": rgb("#556d59"), "grok": rgb("#5c588d"),
-       "cost": rgb("#6c6c4b"), "tasks": rgb("#5f6b7a")}
+# The terminal's own 16 colors, so the panel takes on its theme, whatever
+# that is. btop's layout: each box an outline dimmed from its hue, titles
+# bright, levels green to red, unlit meter cells the theme's bright black.
+BOX = {"claude": "2;31", "codex": "2;32", "grok": "2;34", "cost": "2;33", "tasks": "2;36"}
 OTHER_BOX = BOX["tasks"]
-TITLE = rgb("#eeeeee")
-UNLIT = rgb("#3d3d3d")
-LEVEL = {"ok": rgb("#77ca9b"), "low": rgb("#cbc06c"), "critical": rgb("#dc4c4c")}
+TITLE = "97"
+UNLIT = "90"
+LEVEL = {"ok": "32", "low": "33", "critical": "31"}
 # Never by color alone.
 # A mark of its own shape: a ■ would read as one more cell of the meter.
 MARK = {"ok": "", "low": "!", "critical": "!!"}
@@ -37,8 +32,8 @@ TAIL_W = 2 + 6
 WARN = LEVEL["low"]
 ERROR = LEVEL["critical"]
 # advisor-live's own: the advisor violet, each moment its color.
-BOX["advisor"] = rgb("#6d5a80")
-VIOLET = rgb("#a78bfa")
+BOX["advisor"] = "2;35"
+VIOLET = "35"
 MOMENTS = [("plan", "plan", VIOLET), ("error", "error", ERROR), ("done", "done", LEVEL["ok"]), ("other", "check", MUTED)]
 
 UNIT = {"分钟": "m", "小时": "h", "天": "d"}
