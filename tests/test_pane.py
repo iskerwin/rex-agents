@@ -228,3 +228,32 @@ def test_a_task_in_a_rex_pane_is_a_link_across_its_whole_row():
     assert plain(linked).rstrip(" │").endswith("10m ↗") and "↗" not in plain(other)
     assert {key_at(linked, c) for c in range(2, 38)} == {"task:7"}
     assert key_at(linked, 0) is None and {key_at(other, c) for c in range(40)} == {None}
+
+
+def test_the_cost_box_opens_to_each_models_tokens_and_cost():
+    from rex_agents.pane import model_usage
+    from rex_agents.text import key_at
+    today = datetime.fromtimestamp(NOW).date()
+    def row(agent, model, name, out, cost, days_ago=0):
+        return {"date": (today - timedelta(days=days_ago)).isoformat(), "agent": agent, "model": model,
+                "model_name": name, "fresh": 0, "cache_read": 99, "cache_write": 0, "output": out, "cost": cost}
+    rows = [row("codex", "gpt", "GPT-6.1 Sol", 50, 1.0), row("claude", "opus", "Claude Opus 5.5", 10, 2.0),
+            row("claude", "opus", "Claude Opus 5.5", 5, 1.0, 1), row("claude", "fable", "Claude Fable 5.2", 30, None),
+            row("claude", "sonnet", "Claude Sonnet 5.5", 99, 9.0, 20), row("grok", "g", "g", 0, None)]
+    assert model_usage(rows, "7d", NOW) == [("claude", "Fable 5.2", 30, None), ("claude", "Opus 5.5", 15, 3.0),
+                                            ("codex", "GPT-6.1 Sol", 50, 1.0)]
+    assert ("claude", "Sonnet 5.5", 99, 9.0) in model_usage(rows, "30d", NOW)
+    closed = build_pane(snapshot(usage={"rows": rows}), None, 40, 40, NOW)
+    edge = next(l for l in closed if "Cost" in plain(l))
+    assert "▸ models" in plain(edge) and "models" in {key_at(edge, c) for c in range(40)}
+    assert not any("Opus 5.5" in plain(l) for l in closed)
+    opened = build_pane(snapshot(usage={"rows": rows}), None, 40, 40, NOW, models="7d")
+    text = [plain(l) for l in opened]
+    assert any("▾ models" in t for t in text)
+    head = next(l for l in opened if plain(l).startswith("│ Models"))
+    assert {key_at(head, c) for c in range(40)} == {None, "models:7d", "models:30d"}
+    assert any("● Fable 5.2" in t and t.rstrip(" │").endswith("—") for t in text)
+    assert any("● Opus 5.5" in t and "$3.00" in t for t in text)
+    # Short of rows the list is cut to fit, and the tasks keep their edge.
+    tight = build_pane(snapshot(usage={"rows": rows}), None, 40, 16, NOW, models="7d")
+    assert plain(tight[-1]).startswith("╰") and any(plain(l).startswith("│ Models") for l in tight)

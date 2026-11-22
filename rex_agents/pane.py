@@ -112,6 +112,31 @@ def daily_costs(rows: list[dict[str, Any]], now: int, days: int = 30) -> list[fl
     return list(bars.values())
 
 
+# The models list's spans: the hourly rows carry no model.
+MODEL_SPANS = ("7d", "30d")
+AGENT_ORDER = ("claude", "codex", "grok")
+
+
+def model_usage(rows: list[dict[str, Any]], span: str, now: int) -> list[tuple[str, str, int, Optional[float]]]:
+    """Each model's agent, name, tokens and cost over the last `span` days,
+    by agent, then most tokens first. Unused models are left out; a cost is
+    None when the model has no public price."""
+    today = datetime.fromtimestamp(now).date()
+    days = {(today - timedelta(days=i)).isoformat() for i in range(int(span[:-1]))}
+    found: dict[tuple[str, str], list[Any]] = {}
+    for r in rows:
+        if r["date"] not in days:
+            continue
+        name = re.sub(r"^Claude ", "", r.get("model_name") or r["model"])
+        entry = found.setdefault((r["agent"], name), [0, None])
+        entry[0] += tokens(r)
+        if r.get("cost") is not None:
+            entry[1] = (entry[1] or 0) + r["cost"]
+    order = {a: i for i, a in enumerate(AGENT_ORDER)}
+    listed = [(a, n, t, c) for (a, n), (t, c) in found.items() if t]
+    return sorted(listed, key=lambda m: (order.get(m[0], len(order)), m[0], -m[2]))
+
+
 # The trend's spans: the hours of the last day, or the last 7 or 30 days.
 SPANS = ("24h", "7d", "30d")
 CHART_ROWS = 3
@@ -213,7 +238,8 @@ class _Boxes:
         self.width = width
         self.inner = width - 4
 
-    def edge(self, top: bool, color: str, title: str = "", label: str = "", label_color: str = TITLE) -> Line:
+    def edge(self, top: bool, color: str, title: str = "", label: str = "", label_color: str = TITLE,
+             label_key: Optional[str] = None) -> Line:
         left, right = ("╭", "╮") if top else ("╰", "╯")
         opening, closing = ("┐", "┌") if top else ("┘", "└")
         room = self.width - 2 - (text_width(title) + 3 if title else 0)
@@ -224,14 +250,14 @@ class _Boxes:
             line += [Span(title, TITLE, True), Span(closing, color)]
         line.append(Span("─" * max(fill, 0) + (opening if label else ""), color))
         if label:
-            line += [Span(label, label_color), Span(closing + "─", color)]
+            line += [Span(label, label_color, False, label_key), Span(closing + "─", color)]
         line.append(Span(right, color))
         return line
 
     def box(self, title: str, color: str, rows: list[Line], top: str = "", foot: str = "",
-            foot_color: str = TITLE) -> list[Line]:
+            foot_color: str = TITLE, top_key: Optional[str] = None) -> list[Line]:
         body = [[Span("│ ", color), *fit(row, self.inner), Span(" │", color)] for row in rows]
-        return [self.edge(True, color, title, top), *body, self.edge(False, color, "", foot, foot_color)]
+        return [self.edge(True, color, title, top, TITLE, top_key), *body, self.edge(False, color, "", foot, foot_color)]
 
 
 def _spread(left: Line, right: Line, width: int) -> Line:
@@ -244,19 +270,20 @@ def _spread(left: Line, right: Line, width: int) -> Line:
 
 def build_pane(snap: Optional[dict[str, Any]], error: Optional[str], width: int, height: int, now: int,
                advisors: Sequence[dict[str, Any]] = (), tab_agents: Sequence[str] = (),
-               span: str = SPANS[0], linked: Collection[int] = ()) -> list[Line]:
+               span: str = SPANS[0], linked: Collection[int] = (), models: Optional[str] = None) -> list[Line]:
     """Exactly `height` lines of `width` cells. `advisors` are the states
     advisor-live shares of the Claude Code sessions in this tab;
     `tab_agents` the agents running in it, whose boxes get a usage trend
     over `span` when there is room; `linked` the pids of tasks in a Rex
-    pane, which a click on their row goes to."""
+    pane, which a click on their row goes to; `models` the span of the
+    per-model list the Cost box opens to, None while it is closed."""
     width, height = max(width, 1), max(height, 1)
     if snap is None:
         lines: list[Line] = [[Span(error, ERROR)] if error else [Span("Loading", MUTED)]]
     elif width < 24:
         lines = [[Span("Too narrow", MUTED)]]
     else:
-        lines = _layout(snap, error, width, height, now, advisors, tab_agents, span, linked)
+        lines = _layout(snap, error, width, height, now, advisors, tab_agents, span, linked, models)
     lines = [fit(_merge(line), width) for line in lines[:height]]
     return [*lines, *[[Span(" " * width)] for _ in range(height - len(lines))]]
 
@@ -299,7 +326,7 @@ def _advisor_rows(state: dict[str, Any], inner: int, label_w: int, meter_w: int,
 
 def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int, now: int,
             advisors: Sequence[dict[str, Any]], tab_agents: Sequence[str], span: str,
-            linked: Collection[int]) -> list[Line]:
+            linked: Collection[int], models: Optional[str] = None) -> list[Line]:
     boxes = _Boxes(width)
     accounts = snap["accounts"]
     usage = snap.get("usage", {})
@@ -323,9 +350,24 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
 
     account_rows = sum(max(1, len(live(a))) + 2 for a in accounts)
     account_rows += sum(len(_moments(st)) + 3 for st in advisors)
-    # Trends only when the boxes, cost and a task row still fit beside them;
-    # the cost chart goes first, then the agents' trends.
-    base = account_rows + 3 + 3
+    # The models list, opened by a click, goes before anything else, cut to
+    # fit; then trends while the boxes, cost and a task row still fit
+    # beside them; the cost chart goes first, then the agents' trends.
+    listed = model_usage(usage.get("rows", []), models, now) if models else []
+    model_rows: list[Line] = []
+    if models:
+        tabs: Line = []
+        for s in MODEL_SPANS:
+            tabs += [Span(" " if tabs else ""), Span(s, TITLE if s == models else MUTED, s == models, f"models:{s}")]
+        model_rows.append(_spread([Span("Models", None, True)], tabs, boxes.inner))
+        for agent, name, n, cost in listed:
+            model_rows.append(_spread([Span("● ", BOX.get(agent, OTHER_BOX).split(";")[-1]), Span(name)],
+                                      [Span(pad_text(count(n), 7, True), None, True),
+                                       Span(pad_text(money(cost), 8, True), MUTED)], boxes.inner))
+        if not listed:
+            model_rows.append([Span("No usage", MUTED)])
+        model_rows = model_rows[:max(0, height - (account_rows + 3 + 3))]
+    base = account_rows + 3 + 3 + len(model_rows)
     charted = [a["agent"] for a in accounts if a["agent"] in tab_agents]
     if height < base + len(charted) * (1 + CHART_ROWS):
         charted = []
@@ -395,7 +437,9 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
     if cost_chart:
         cost_rows += [[Span(c.text, c.color or COST_BAR) for c in row]
                       for row in chart(daily_costs(usage.get("rows", []), now, COST_DAYS), boxes.inner, COST_ROWS)]
-    out += boxes.box("Cost", BOX["cost"], cost_rows, "", age, ERROR if error else MUTED if snap.get("refreshing") else TITLE)
+    cost_rows += model_rows
+    out += boxes.box("Cost", BOX["cost"], cost_rows, "▾ models" if models else "▸ models", age,
+                     ERROR if error else MUTED if snap.get("refreshing") else TITLE, "models")
 
     # Running tasks first, then the newest; the box takes every row left over.
     room = max(1, height - len(out) - 2)
