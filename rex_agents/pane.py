@@ -95,11 +95,15 @@ def costs(rows: list[dict[str, Any]], now: int) -> tuple[Optional[float], Option
 
 
 def meter(left: Optional[float], pace: Optional[float], width: int) -> Line:
-    """`width` cells of ■, lit for what is left, a bright │ where an even pace
-    would have the level by now."""
-    lit = 0 if left is None else round(min(max(left, 0), 100) / 100 * width)
-    notch = -1 if pace is None else min(width - 1, round(pace / 100 * width))
-    return [Span("│", TITLE) if i == notch else Span("■", None if i < lit else UNLIT) for i in range(width)]
+    """`width` columns: cells of ■, lit for what is left, and a bright │ between
+    the cells where an even pace would have the level by now. The │ takes a
+    column of its own, so it never hides whether a cell is lit."""
+    cells = width if pace is None else width - 1
+    lit = 0 if left is None else round(min(max(left, 0), 100) / 100 * cells)
+    line: Line = [Span("■", None if i < lit else UNLIT) for i in range(cells)]
+    if pace is not None:
+        line.insert(round(min(max(pace, 0), 100) / 100 * cells), Span("│", TITLE))
+    return line
 
 
 def _merge(line: Line) -> Line:

@@ -65,9 +65,19 @@ def test_nothing_yet_and_failure_say_so():
 
 
 def test_meter_lights_what_is_left_and_marks_an_even_pace():
-    cells = meter(50, 25, 8)
-    assert [c.text for c in cells] == ["■", "■", "│", "■", "■", "■", "■", "■"]
-    assert [c.color == UNLIT for c in cells] == [False, False, False, False, True, True, True, True]
+    cells = meter(50, 25, 9)
+    assert [c.text for c in cells] == ["■", "■", "│", "■", "■", "■", "■", "■", "■"]
+    assert [c.color == UNLIT for c in cells if c.text == "■"] == [False] * 4 + [True] * 4
+
+
+def test_pace_notch_sits_between_cells_and_hides_none():
+    # The notch falls exactly on the lit edge: every lit cell still shows.
+    cells = meter(50, 50, 9)
+    assert [c.text for c in cells] == ["■"] * 4 + ["│"] + ["■"] * 4
+    assert [c.color == UNLIT for c in cells if c.text == "■"] == [False] * 4 + [True] * 4
+    assert [c.text for c in meter(100, 0, 5)] == ["│", "■", "■", "■", "■"]
+    assert [c.text for c in meter(100, 100, 5)] == ["■", "■", "■", "■", "│"]
+    assert len(meter(30, None, 9)) == len(meter(30, 40, 9)) == 9
     assert all(c.text == "■" for c in meter(None, None, 4)) and all(c.color == UNLIT for c in meter(None, None, 4))
 
 
