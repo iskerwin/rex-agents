@@ -1,0 +1,25 @@
+[project]
+name = "rex-agents"
+version = "0.1.0"
+description = "A Rex side panel with your AI coding agents' quota, advisor, cost and tasks"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+rex-agents = "rex_agents.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["uv_build>=0.8,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
