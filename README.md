@@ -1,34 +1,93 @@
 # rex-agents
 
-Rex 的侧边面板：Claude Code、Codex、Grok 还剩多少额度，当前标签页里 Claude Code 会话的 advisor，今日和本月费用，以及运行中的任务。
+A side panel for the [Rex](https://www.superlogical.com/rex) terminal: how much quota Claude Code, Codex and Grok have left and when it resets, the advisor of the Claude Code sessions in the tab, today's and this month's cost, and the agents running. It opens down the right edge of any tab, beside any agent or none.
+
+```text
+╭─┐Claude┌──────────────────────┐Pro┌─╮
+│ 5h    ■■■■■■■■■■■│■■■■  73%   3h23m │
+│ 7d    ■■■■■■■│■■■■■■■■  15%!! 2d21h │
+╰─────────────────────────────────────╯
+╭─┐Advisor┌────────┐Opus 5.5 → Fable┌─╮
+│ ● build 5:31                    12s │
+│ plan  ■■■■■■■■■■■■■■■■  50%       2 │
+│ error ■■■■■■■■■■■■■■■■   0%       0 │
+│ done  ■■■■■■■■■■■■■■■■  50%       2 │
+╰─────────────────────────────────────╯
+╭─┐Codex┌──────────────────────┐Team┌─╮
+│ 5h    ■■■■■■■■■■■■■■■│  96%   4h34m │
+│ 7d    ■■■■■■■■■■■■│■■■  99%    5d2h │
+╰─────────────────────────────────────╯
+╭─┐费用┌──────────────────────────────╮
+│ 今日 $25.51               本月 $635 │
+╰────────────────────────────────┘9s└─╯
+╭─┐任务┌────────────────────────┐1/2┌─╮
+│ ● Fix the login redirect         5m │
+│ ○ Release notes for 2.4         14m │
+╰─────────────────────────────────────╯
+```
+
+It needs Python 3.11 or later and [uv](https://docs.astral.sh/uv/), and nothing else: it reads the agents' own logs and logins itself, with the standard library only.
+
+## Install
 
 ```bash
-uv tool install .            # 装到 PATH，Python 代码改动后加 --force --reinstall 重新运行
+git clone https://github.com/iskerwin/rex-agents ~/Developer/rex-agents
+cd ~/Developer/rex-agents
+uv tool install .            # after a code change: uv tool install --force --reinstall .
+```
+
+Then load the plugin from Rex's config, `~/.config/rex/init.lua`, with the absolute path of the command `uv tool install` put on your PATH (`which rex-agents`):
+
+```lua
+dofile("/Users/you/Developer/rex-agents/rex/init.lua").setup({ bin = { "/Users/you/.local/bin/rex-agents" } })
+```
+
+Run `rex config reload`. Shift+Cmd+U, or "Toggle Agents Panel" in the command palette, opens or closes the panel in the current tab. `setup` also takes:
+
+| Option | Default | |
+|---|---|---|
+| `width` | `1/3` | The panel's share of the tab's width, such as `1/4` |
+| `key` | `"shift+cmd+u"` | The toggle's key; `false` binds none |
+| `bin` | `{ "rex-agents" }` | The command, as a list |
+
+The panel shows this machine's agents, so it opens only in sessions on this machine.
+
+## The panel
+
+- **One box per agent**, a row per quota window: a meter of what is left, the share left and the time to the reset. The bright notch is where an even pace would be now. `!` marks 40% or less left, `!!` 20% or less. The title carries the plan, and the workspace where there is one.
+- **Advisor**, under Claude's box while a Claude Code session in the tab has an advisor: the main model and the advisor, whether the main model is working, how long ago the advisor last answered, and how many calls fell under each moment it is meant to wake up: before the plan locks, the same error twice, before calling it done, and check-ins between. An advisor set but not called through three working turns reads `idle · N turns`: it is likely less capable than the main model and never activates.
+- **费用** (cost): today's and this month's, estimated at public API prices. The foot says how old the data is.
+- **任务** (tasks): the agents' sessions, `●` running and `○` idle, down to the panel's foot.
+
+A short panel folds to one line per agent. It refreshes every 60 seconds. Several open panels make one quota query a minute between them, shared through `~/.cache/rex-agents/snapshot.json` (mode 0600, holding account emails and project paths). Press `q` in the panel to quit it.
+
+**Cost is an estimate, not a bill.** Tokens from the logs are priced at [public API rates](rex_agents/pricing.py); subscriptions don't pay that way. Models without a public price (such as `grok-4.7-build`) aren't counted, nor are long-context and fast-mode surcharges, so it runs a little under real API cost.
+
+## Where the data comes from
+
+| | Claude Code | Codex | Grok |
+|---|---|---|---|
+| Tokens, cost, tasks | `~/.claude/projects/**/*.jsonl` | `~/.codex*/sessions`, `archived_sessions` | `~/.grok/sessions/*/*/usage.json` |
+| Quota | The usage endpoint `/usage` calls, with Claude Code's OAuth token | `codex app-server`, else the newest record in the session logs | The usage endpoint the Grok CLI calls, with its token |
+| Advisor | The session's own log, found through Rex and `~/.claude/sessions/<pid>.json` | | |
+
+- Logs are read for times, models, working directories, token counts, the session titles the agents write, and, for the advisor, advisor calls, tool names and whether a tool failed. Not what was said. A failed result's first 80 characters are compared, in memory only, to tell the same error twice.
+- **Claude**: the token is read from `~/.claude/.credentials.json` or the macOS keychain (which may ask), kept in memory and sent only to `api.anthropic.com`. The endpoint is undocumented and rate-limited hard: one call a minute at most, and after an HTTP 429 the wait doubles, up to 15 minutes, or follows `Retry-After`. Meanwhile the panel keeps the last values, marked stale after 10 minutes. Other tools that call the same endpoint share its limit.
+- **Grok**: read from `~/.grok/auth.json` (written by `grok login`), never written to, sent only to `cli-chat-proxy.grok.com`. An expired login is renewed by the Grok CLI itself through `grok models`, which starts no session.
+- A missing value stays missing, never 0% or 100%. A window past its reset is dropped. No agent session is started to refresh usage, and no limit is touched.
+
+## Develop
+
+```bash
 uv run --group dev pytest
 ```
 
-数据来自 [agents-usage](https://github.com/iskerwin/agents-usage) 的 `agents-usage --json --claude-live`，要先装好它。面板每 60 秒刷新一次；开着几个面板时，agents-usage 在同一分钟内只查询一次配额。只依赖 Python 标准库。
+## Notice
 
-## 加载
+Unofficial, and not affiliated with Superlogical, Anthropic, OpenAI or xAI. The Claude and Grok quotas come from undocumented endpoints with the tokens stored on this machine, and may stop working at any time; check that this fits each service's terms before you use it.
 
-在 Rex 的配置（`~/.config/rex/init.lua`）里：
+The quota freshness rules follow [aiusage](https://github.com/sergestack/aiusage) (MIT); no code was copied. The advisor moments follow [advisor-live](https://github.com/iskerwin/advisor-live), a Claude Code mod with a pane of its own.
 
-```lua
-dofile("/path/to/rex-agents/rex/init.lua").setup({ bin = { "/path/to/rex-agents" }, width = 1/3 })
-```
-
-按 shift+cmd+u，或在命令面板里运行 “Toggle Agents Panel”，在当前标签页右侧打开或关闭面板，和标签页里跑的是什么无关。`width` 是面板占标签页宽度的比例（默认 1/3，可以设成 1/4），`key` 换快捷键，`key = false` 不绑定。面板显示本机的用量，所以只用于本机的会话。
-
-## 面板
-
-每个 agent 一个框，每个额度窗口一行：剩余量的长条、剩余百分比和距重置的时间，长条上亮的竖线是匀速用量此刻应剩的位置，剩余 ≤40% 标 `!`，≤20% 标 `!!`。下面是费用（框底标着数据是多久前的），最后是运行中的任务，一直排到面板底部。面板矮时每个 agent 收成一行。
-
-同一个标签页里有开着 advisor 的 Claude Code 会话时，Claude 框下面多一个 Advisor 框：主模型和 advisor、主模型在不在跑、最近一次调用，以及各个时机（定方案前、同一个错误两次、收尾前、中途确认）的调用次数。这些来自那个会话自己的日志（`~/.claude/projects/*/<会话>.jsonl`），时机的判断方式和 [advisor-live](https://github.com/iskerwin/advisor-live) 相同，不需要装它。
-
-## 隐私
-
-Advisor 框只读取 Claude Code 日志里的 advisor 调用、模型名、工具名和工具是否失败，不读消息内容；失败结果只读前 80 个字符，用来判断是不是同一个错误，只留在内存里。
-
-## 许可证
+## License
 
 [MIT](LICENSE)

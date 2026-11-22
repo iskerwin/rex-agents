@@ -1,4 +1,4 @@
-"""The Agents panel, drawn in btop's style from an agents-usage snapshot. Pure: no
+"""The Agents panel, drawn in btop's style from a snapshot. Pure: no
 I/O and no clock.
 
 One box per agent with a meter per quota window, then the cost, then the
