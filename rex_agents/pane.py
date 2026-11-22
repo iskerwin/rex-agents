@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import Any, Optional, Sequence
+from typing import Any, Collection, Optional, Sequence
 
 from rex_agents.text import MUTED, Line, Span, fit, line_width, pad_text, plain, plan_text, text_width
 
@@ -89,9 +89,36 @@ def costs(rows: list[dict[str, Any]], now: int) -> tuple[Optional[float], Option
             priced([r for r in rows if r["date"].startswith(today[:7])]))
 
 
+def month_end(month: Optional[float], now: int) -> Optional[float]:
+    """This month's cost if the rest of it goes at its pace so far; None in
+    its first day, too early to say."""
+    if not month:
+        return None
+    t = datetime.fromtimestamp(now)
+    start = t.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = (start + timedelta(days=32)).replace(day=1)
+    elapsed = (t - start).total_seconds()
+    return None if elapsed < 86400 else month * (end - start).total_seconds() / elapsed
+
+
+def daily_costs(rows: list[dict[str, Any]], now: int, days: int = 30) -> list[float]:
+    """The cost of each of the last `days` days, oldest first, 0 for a day
+    with none."""
+    today = datetime.fromtimestamp(now).date()
+    bars = dict.fromkeys(((today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)), 0.0)
+    for r in rows:
+        if r["date"] in bars and r.get("cost"):
+            bars[r["date"]] += r["cost"]
+    return list(bars.values())
+
+
 # The trend's spans: the hours of the last day, or the last 7 or 30 days.
 SPANS = ("24h", "7d", "30d")
 CHART_ROWS = 3
+COST_ROWS = 2
+COST_DAYS = 30
+LINK = "36"
+COST_BAR = "33"
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
 
@@ -217,18 +244,19 @@ def _spread(left: Line, right: Line, width: int) -> Line:
 
 def build_pane(snap: Optional[dict[str, Any]], error: Optional[str], width: int, height: int, now: int,
                advisors: Sequence[dict[str, Any]] = (), tab_agents: Sequence[str] = (),
-               span: str = SPANS[0]) -> list[Line]:
+               span: str = SPANS[0], linked: Collection[int] = ()) -> list[Line]:
     """Exactly `height` lines of `width` cells. `advisors` are the states
     advisor-live shares of the Claude Code sessions in this tab;
     `tab_agents` the agents running in it, whose boxes get a usage trend
-    over `span` when there is room."""
+    over `span` when there is room; `linked` the pids of tasks in a Rex
+    pane, which a click on their row goes to."""
     width, height = max(width, 1), max(height, 1)
     if snap is None:
         lines: list[Line] = [[Span(error, ERROR)] if error else [Span("Loading", MUTED)]]
     elif width < 24:
         lines = [[Span("Too narrow", MUTED)]]
     else:
-        lines = _layout(snap, error, width, height, now, advisors, tab_agents, span)
+        lines = _layout(snap, error, width, height, now, advisors, tab_agents, span, linked)
     lines = [fit(_merge(line), width) for line in lines[:height]]
     return [*lines, *[[Span(" " * width)] for _ in range(height - len(lines))]]
 
@@ -270,7 +298,8 @@ def _advisor_rows(state: dict[str, Any], inner: int, label_w: int, meter_w: int,
 
 
 def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int, now: int,
-            advisors: Sequence[dict[str, Any]], tab_agents: Sequence[str], span: str) -> list[Line]:
+            advisors: Sequence[dict[str, Any]], tab_agents: Sequence[str], span: str,
+            linked: Collection[int]) -> list[Line]:
     boxes = _Boxes(width)
     accounts = snap["accounts"]
     usage = snap.get("usage", {})
@@ -283,17 +312,25 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
         return "—" if left is None else f"{round(left)}%"
 
     today, month = costs(usage.get("rows", []), now)
-    cost_row = _spread([Span("Today ", MUTED), Span(money(today), None, True)],
-                       [Span("Month ", MUTED), Span(money(month), None, True)], boxes.inner)
-    age = "failed" if error else ago(now - snap["generated_at"])
+    month_tail: Line = [Span("Month ", MUTED), Span(money(month), None, True)]
+    projected = month_end(month, now)
+    cost_left: Line = [Span("Today ", MUTED), Span(money(today), None, True)]
+    if projected is not None and line_width(cost_left) + 1 + line_width(month_tail) + 4 + len(money(projected)) <= boxes.inner:
+        month_tail.append(Span(f" → ≈{money(projected)}", WARN))
+    cost_row = _spread(cost_left, month_tail, boxes.inner)
+    # A snapshot restored from disk is old until the first refresh lands.
+    age = "failed" if error else "refreshing" if snap.get("refreshing") else ago(now - snap["generated_at"])
 
     account_rows = sum(max(1, len(live(a))) + 2 for a in accounts)
     account_rows += sum(len(_moments(st)) + 3 for st in advisors)
-    # Trends only when the boxes, cost and a task row still fit beside them.
+    # Trends only when the boxes, cost and a task row still fit beside them;
+    # the cost chart goes first, then the agents' trends.
+    base = account_rows + 3 + 3
     charted = [a["agent"] for a in accounts if a["agent"] in tab_agents]
-    if height < account_rows + 3 + 3 + len(charted) * (1 + CHART_ROWS):
+    if height < base + len(charted) * (1 + CHART_ROWS):
         charted = []
-    if height < account_rows + 3 + 3:
+    cost_chart = height >= base + len(charted) * (1 + CHART_ROWS) + COST_ROWS
+    if height < base:
         compact: list[Line] = []
         for a in accounts:
             line: Line = [Span(pad_text(a["agent"].capitalize(), 7), MUTED if a.get("stale") else None, True)]
@@ -344,8 +381,9 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
             rows.append(_spread(total, tabs, boxes.inner))
             rows += chart(values, boxes.inner)
         plan = " · ".join(p for p in (a.get("plan") and plan_text(a["plan"]), a.get("workspace")) if p)
+        stale_for = f"stale {ago(now - a['captured_at'])}" if stale and a.get("captured_at") else "stale"
         out += boxes.box(a["agent"].capitalize(), BOX.get(a["agent"], OTHER_BOX), rows, plan,
-                         "stale" if stale else "", WARN)
+                         stale_for if stale else "", WARN)
         # The advisors of this tab's Claude sessions, under Claude's quota.
         if a["agent"] == "claude":
             for st in advisors:
@@ -353,7 +391,11 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
                 out += boxes.box("Advisor", BOX["advisor"], _advisor_rows(st, boxes.inner, label_w, meter_w, now),
                                  f"{st['main']} → {st['advisor']}", f"×{total}" if total else "")
 
-    out += boxes.box("Cost", BOX["cost"], [cost_row], "", age, ERROR if error else TITLE)
+    cost_rows = [cost_row]
+    if cost_chart:
+        cost_rows += [[Span(c.text, c.color or COST_BAR) for c in row]
+                      for row in chart(daily_costs(usage.get("rows", []), now, COST_DAYS), boxes.inner, COST_ROWS)]
+    out += boxes.box("Cost", BOX["cost"], cost_rows, "", age, ERROR if error else MUTED if snap.get("refreshing") else TITLE)
 
     # Running tasks first, then the newest; the box takes every row left over.
     room = max(1, height - len(out) - 2)
@@ -362,11 +404,16 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
     for t in tasks[:room]:
         idle = t["state"] != "running"
         since = ago(now - t["since"]) if t.get("since") else ""
-        task_rows.append(_spread([Span("○ " if idle else "● ", MUTED if idle else LEVEL["ok"]),
-                                  Span(t.get("title") or t["project"], MUTED if idle else None)],
-                                 [Span(since, MUTED)], boxes.inner))
+        tail = [Span(since, MUTED)]
+        if t.get("pid") in linked:
+            tail.append(Span(" ↗", LINK))
+        row = _spread([Span("○ " if idle else "● ", MUTED if idle else LEVEL["ok"]),
+                       Span(t.get("title") or t["project"], MUTED if idle else None)], tail, boxes.inner)
+        # The whole row is the link, the gap in it too.
+        task_rows.append([c._replace(key=f"task:{t['pid']}") for c in row] if t.get("pid") in linked else row)
     if not task_rows:
-        task_rows = [[Span("No agents running", MUTED)]]
+        # A restored snapshot keeps no tasks: their processes may be gone.
+        task_rows = [[Span("Loading" if snap.get("refreshing") else "No agents running", MUTED)]]
     task_rows += [[] for _ in range(room - len(task_rows))]
     running = sum(t["state"] == "running" for t in tasks)
     out += boxes.box("Tasks", BOX["tasks"], task_rows, f"{running}/{len(tasks)}" if tasks else "")

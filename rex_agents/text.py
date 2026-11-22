@@ -8,6 +8,7 @@ from typing import NamedTuple, Optional
 
 # SGR codes. Dim is the terminal's own, so it reads on any background.
 MUTED = "2"
+REVERSE = "7"
 
 
 class Span(NamedTuple):
@@ -27,6 +28,15 @@ def key_at(line: Line, column: int) -> Optional[str]:
 
 
 Line = list[Span]
+
+
+def highlight(line: Line, column: int) -> Line:
+    """`line` with the spans sharing the key under `column` reversed, so a
+    link shows itself under the pointer."""
+    key = key_at(line, column)
+    if key is None:
+        return line
+    return [s._replace(color=f"{s.color};{REVERSE}" if s.color else REVERSE) if s.key == key else s for s in line]
 
 
 def char_width(ch: str) -> int:
@@ -82,8 +92,9 @@ def to_ansi(line: Line, color: bool) -> str:
     out: list[str] = []
     for span in line:
         codes = [code for code in ("1" if span.bold else None, span.color) if code]
-        # Blanks show no color, so a run of them needs no escape codes.
-        if codes and span.text.strip():
+        # Blanks show no color, so a run of them needs no escape codes,
+        # unless reversed: then their background is the color.
+        if codes and (span.text.strip() or REVERSE in (span.color or "").split(";")):
             out.append(f"\x1b[{';'.join(codes)}m{span.text}\x1b[0m")
         else:
             out.append(span.text)

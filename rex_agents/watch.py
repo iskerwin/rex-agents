@@ -12,13 +12,15 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
-from rex_agents.text import Line, key_at, to_ansi
+from rex_agents.text import Line, highlight, key_at, to_ansi
 
 FRAME_SECONDS = 0.1
 HIDE_CURSOR, SHOW_CURSOR = "\x1b[?25l", "\x1b[?25h"
 ENTER_ALT, LEAVE_ALT = "\x1b[?1049h", "\x1b[?1049l"
-# Clicks reported as `ESC [ < button ; column ; row M`, 1-based.
-MOUSE_ON, MOUSE_OFF = "\x1b[?1000h\x1b[?1006h", "\x1b[?1006l\x1b[?1000l"
+# Clicks and pointer moves reported as `ESC [ < button ; column ; row M`,
+# 1-based; a move with no button held is button 35.
+MOUSE_ON, MOUSE_OFF = "\x1b[?1003h\x1b[?1006h", "\x1b[?1006l\x1b[?1003l"
+MOVE = 35
 MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
 OTHER_ESCAPE = re.compile(r"\x1b(\[[0-9;?<]*[ -/]*[@-~]|O.|.)?")
 
@@ -55,12 +57,11 @@ class _CbreakInput:
             import termios
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.saved)
 
-    def pressed(self, lines: list[Line]) -> list[str]:
-        """The keys pressed since the last call; a click on `lines` counts as
-        the key of the span it lands on."""
+    def read(self) -> str:
+        """What came in since the last call."""
         if self.saved is None or not select.select([sys.stdin], [], [], 0)[0]:
-            return []
-        return read_keys(os.read(sys.stdin.fileno(), 1024).decode(errors="ignore"), lines)
+            return ""
+        return os.read(sys.stdin.fileno(), 1024).decode(errors="ignore")
 
 
 def read_keys(data: str, lines: list[Line]) -> list[str]:
@@ -79,11 +80,20 @@ def read_keys(data: str, lines: list[Line]) -> list[str]:
     return keys + list(OTHER_ESCAPE.sub("", data[at:]))
 
 
+def pointer(data: str) -> Optional[tuple[int, int]]:
+    """Where the last pointer move in `data` went, as a 0-based row and
+    column; None if it did not move."""
+    moves = [m for m in MOUSE.finditer(data) if int(m[1]) == MOVE]
+    return (int(moves[-1][3]) - 1, int(moves[-1][2]) - 1) if moves else None
+
+
 def watch(fetch: Fetch, compose: Compose, color: bool, interval: int,
-          on_key: Optional[Callable[[str], None]] = None) -> None:
+          on_key: Optional[Callable[[str], None]] = None, initial: Optional[dict[str, Any]] = None) -> None:
     """Redraws `compose`'s rows until q, calling `fetch` every `interval` seconds
-    and `on_key` with any other key pressed or clicked."""
-    state: dict[str, Any] = {"snapshot": None, "error": None}
+    and `on_key` with any other key pressed or clicked. `initial` is shown
+    until the first fetch lands. A span with a key is reversed under the
+    pointer."""
+    state: dict[str, Any] = {"snapshot": initial, "error": None}
     stop = threading.Event()
 
     def worker() -> None:
@@ -103,17 +113,22 @@ def watch(fetch: Fetch, compose: Compose, color: bool, interval: int,
     threading.Thread(target=worker, daemon=True).start()
     shown: list[str] = []
     lines: list[Line] = []
+    hover: Optional[tuple[int, int]] = None
     _write(ENTER_ALT + HIDE_CURSOR + MOUSE_ON + "\x1b[2J")
     try:
         with _CbreakInput() as keys:
             while True:
-                for key in keys.pressed(lines):
+                data = keys.read()
+                hover = pointer(data) or hover
+                for key in read_keys(data, lines):
                     if key in ("q", "Q", "\x03"):
                         return
                     if on_key:
                         on_key(key)
                 width, height = terminal_size()
                 lines = compose(state["snapshot"], state["error"], width, height)
+                if hover and hover[0] < len(lines):
+                    lines[hover[0]] = highlight(lines[hover[0]], hover[1])
                 rendered = [to_ansi(line, color) for line in lines]
                 if len(rendered) != len(shown):
                     shown = [""] * len(rendered)

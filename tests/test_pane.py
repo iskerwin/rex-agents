@@ -173,3 +173,58 @@ def test_the_span_tabs_are_clickable_through_the_box():
     row = next(line for line in lines if "tokens" in plain(line) or "sessions" in plain(line))
     text = plain(row)
     assert [key_at(row, text.index(s)) for s in ("24h", "7d", "30d")] == ["1", "2", "3"]
+
+
+def test_cost_shows_each_day_and_where_the_month_lands():
+    from rex_agents.pane import daily_costs, month_end
+    today = datetime.fromtimestamp(NOW).date()
+    rows = [{"date": today.isoformat(), "cost": 2.0}, {"date": today.isoformat(), "cost": 1.0},
+            {"date": (today - timedelta(days=2)).isoformat(), "cost": 4.0},
+            {"date": (today - timedelta(days=40)).isoformat(), "cost": 9.0}]
+    assert daily_costs(rows, NOW, 4) == [0.0, 4.0, 0.0, 3.0]
+    t = datetime.fromtimestamp(NOW)
+    start = t.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elapsed = (t - start).total_seconds()
+    days = ((start + timedelta(days=32)).replace(day=1) - start).total_seconds()
+    assert month_end(100.0, NOW) == pytest.approx(100 * days / elapsed)
+    assert month_end(None, NOW) is None and month_end(0.0, NOW) is None
+    lines = build_pane(snapshot(usage={"rows": rows}), None, 40, 40, NOW)
+    text = [plain(l) for l in lines]
+    at = next(i for i, t in enumerate(text) if "Cost" in t)
+    assert "→ ≈$" in text[at + 1] and "█" in text[at + 3]
+
+
+def test_the_cost_chart_folds_before_the_trends_and_the_tasks_keep_their_edge():
+    snap = snapshot(usage={"rows": [{"date": datetime.fromtimestamp(NOW).date().isoformat(), "cost": 3.0,
+                                     "agent": "claude", "fresh": 0, "cache_write": 0, "output": 5, "sessions": [0]}]})
+    def chart_rows(height):
+        text = [plain(l) for l in build_pane(snap, None, 40, height, NOW, (), ["claude"])]
+        assert text[-1].startswith("╰") and text[-1].endswith("╯")
+        at = next(i for i, t in enumerate(text) if "Cost" in t)
+        return "tokens" in "".join(text), text[at + 2].startswith("╰")
+    # Rows: Claude 2 windows + trend 4 + edges, Grok, cost, tasks.
+    seen = [chart_rows(h) for h in range(14, 31)]
+    assert seen[-1] == (True, False)
+    # Growing the pane, the trend comes back before the cost chart does.
+    assert seen.index((True, True)) < seen.index((True, False))
+
+
+def test_stale_says_for_how_long_and_restored_data_says_refreshing():
+    accounts = snapshot()["accounts"]
+    accounts[1] = {**accounts[1], "captured_at": NOW - 3 * 3600}
+    text = "\n".join(plain(l) for l in build_pane(snapshot(accounts=accounts), None, 40, 30, NOW))
+    assert "stale 3h" in text
+    text = "\n".join(plain(l) for l in build_pane(snapshot(refreshing=True, tasks=[]), None, 40, 30, NOW))
+    assert "refreshing" in text and "Loading" in text and "No agents running" not in text
+
+
+def test_a_task_in_a_rex_pane_is_a_link_across_its_whole_row():
+    from rex_agents.text import key_at
+    tasks = [{"agent": "claude", "pid": 7, "title": "迁移", "project": "~/b", "state": "running", "since": NOW - 600},
+             {"agent": "codex", "pid": 8, "title": "别处", "project": "~/a", "state": "idle", "since": NOW - 60}]
+    lines = build_pane(snapshot(tasks=tasks), None, 40, 30, NOW, linked={7})
+    linked = next(l for l in lines if "迁移" in plain(l))
+    other = next(l for l in lines if "别处" in plain(l))
+    assert plain(linked).rstrip(" │").endswith("10m ↗") and "↗" not in plain(other)
+    assert {key_at(linked, c) for c in range(2, 38)} == {"task:7"}
+    assert key_at(linked, 0) is None and {key_at(other, c) for c in range(40)} == {None}
