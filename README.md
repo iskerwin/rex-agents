@@ -35,11 +35,12 @@ The panel shows this machine's agents, so it opens only in sessions on this mach
 ## The panel
 
 - **One box per agent**, a row per quota window: a meter of what is left, the share left and the time to the reset. The bright notch is where an even pace would be now. `!` marks 40% or less left, `!!` 20% or less. The title carries the plan, and the workspace where there is one.
+- **Usage trend**, in the box of each agent running in the tab: tokens per hour over the last 24 hours, or per day over the last 7 or 30 days, with the total and how many sessions it spans. Cache reads are left out: every turn rereads the whole context, so they would swamp what the turns added. Click `24h`, `7d` or `30d`, or press `1`, `2` or `3` in the panel, to switch. The panel takes mouse clicks, so selecting its text needs Option-drag.
 - **Advisor**, under Claude's box while a Claude Code session in the tab has an advisor: the main model and the advisor, whether the main model is working, how long ago the advisor last answered, and how many calls fell under each moment it is meant to wake up: before the plan locks, the same error twice, before calling it done, and check-ins between. An advisor set but not called through three working turns reads `idle · N turns`: it is likely less capable than the main model and never activates.
 - **Cost**: today's and this month's, estimated at public API prices. The foot says how old the data is.
 - **Tasks**: the agents' sessions, `●` running and `○` idle, down to the panel's foot.
 
-A short panel folds to one line per agent. It refreshes every 60 seconds. However many panels are open, alongside any other tool using agents-meter, Claude and Grok are asked for their quota once a minute between them all. Press `q` in the panel to quit it.
+A shorter panel drops the trends first, then folds to one line per agent. It refreshes every 60 seconds. However many panels are open, alongside any other tool using agents-meter, Claude and Grok are asked for their quota once a minute between them all. Press `q` in the panel to quit it.
 
 **Cost is an estimate, not a bill.** Tokens from the logs are priced at [public API rates](https://github.com/iskerwin/agents-meter/blob/main/agents_meter/pricing.py); subscriptions don't pay that way. Models without a public price (such as `grok-4.7-build`) aren't counted, nor are long-context and fast-mode surcharges, so it runs a little under real API cost.
 
@@ -47,7 +48,7 @@ A short panel folds to one line per agent. It refreshes every 60 seconds. Howeve
 
 The quotas, tokens, cost and sessions are read by [agents-meter](https://github.com/iskerwin/agents-meter#where-the-data-comes-from): which logs and endpoints, which tokens it reads and where they go, and its rules. Claude's quota comes from the live usage endpoint, with Claude Code's stored token (the macOS keychain may ask once).
 
-The advisor box reads the log of each Claude Code session in the tab, found through Rex and `~/.claude/sessions/<pid>.json`: advisor calls, model names, tool names and whether a tool failed, never what was said. A failed result's first 80 characters are compared, in memory only, to tell the same error twice.
+Which agents run in the tab is told by the name of the program in front of each pane, as Rex reports it. The advisor box reads the log of each Claude Code session in the tab, found through Rex and `~/.claude/sessions/<pid>.json`: advisor calls, model names, tool names and whether a tool failed, never what was said. A failed result's first 80 characters are compared, in memory only, to tell the same error twice.
 
 ## Develop
 

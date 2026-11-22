@@ -14,6 +14,16 @@ class Span(NamedTuple):
     text: str
     color: Optional[str] = None
     bold: bool = False
+    key: Optional[str] = None  # the key a click on the span presses
+
+
+def key_at(line: Line, column: int) -> Optional[str]:
+    """The key of the span covering `column`, counted from 0."""
+    for span in line:
+        column -= text_width(span.text)
+        if column < 0:
+            return span.key
+    return None
 
 
 Line = list[Span]
@@ -54,7 +64,7 @@ def fit(line: Line, width: int) -> Line:
             kept += ch
             room -= w
         if kept:
-            out.append(Span(kept, span.color, span.bold))
+            out.append(span._replace(text=kept))
         if room < 0:
             break
     out.append(Span("…", MUTED))

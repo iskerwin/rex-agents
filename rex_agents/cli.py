@@ -6,12 +6,14 @@ import argparse
 import os
 import sys
 import time
+from typing import Any, Optional
 
 from agents_meter.snapshot import Snapshots
 
 from rex_agents import __version__
 from rex_agents.advisor import AdvisorFeed
-from rex_agents.pane import build_pane
+from rex_agents.pane import SPANS, build_pane
+from rex_agents.text import Line
 from rex_agents.watch import watch
 
 # Claude's and Grok's quotas are asked at most once a minute between every
@@ -31,9 +33,19 @@ def main() -> int:
         print("rex-agents needs to run in a terminal", file=sys.stderr)
         return 2
     sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
-    advisors = AdvisorFeed()
-    watch(Snapshots(claude_live=True), lambda snap, error, w, h: build_pane(snap, error, w, h, int(time.time()), advisors()),
-          wants_color(), REFRESH_SECONDS)
+    tab = AdvisorFeed()
+    span = [SPANS[0]]
+
+    def on_key(key: str) -> None:
+        # 1, 2 and 3 pick the trend's span: 24h, 7d, 30d.
+        if key in ("1", "2", "3"):
+            span[0] = SPANS[int(key) - 1]
+
+    def compose(snap: Optional[dict[str, Any]], error: Optional[str], w: int, h: int) -> list[Line]:
+        advisors = tab()  # refreshes tab.agents too
+        return build_pane(snap, error, w, h, int(time.time()), advisors, tab.agents, span[0])
+
+    watch(Snapshots(claude_live=True), compose, wants_color(), REFRESH_SECONDS, on_key)
     return 0
 
 

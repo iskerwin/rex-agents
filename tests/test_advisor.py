@@ -1,6 +1,6 @@
 import json
 
-from rex_agents.advisor import AdvisorFeed, AdvisorLog, model_name, tab_blocks
+from rex_agents.advisor import AdvisorFeed, AdvisorLog, agent_of, model_name, tab_blocks
 from rex_agents.pane import build_pane
 from rex_agents.text import plain
 
@@ -120,8 +120,9 @@ class FakeRex:
         self.views += 1
         return VIEW
 
-    def foreground_pid(self, session, block):
-        return {"block:a": 41, "block:float": 42}.get(block)
+    def foreground(self, session, block):
+        pid = {"block:a": 41, "block:float": 42}.get(block)
+        return {"pid": pid, "name": "claude" if pid == 41 else "zsh"} if pid else None
 
 
 def test_the_feed_follows_this_tabs_claude_sessions(tmp_path, monkeypatch):
@@ -206,3 +207,12 @@ def test_every_meter_starts_and_ends_in_the_same_column():
     spans = {(min(r.index(c) for c in "■│" if c in r), max(r.rindex(c) for c in "■│" if c in r)) for r in meters}
     assert len(meters) == 5  # claude 5h, codex 7d, the advisor's three moments
     assert len(spans) == 1
+
+
+def test_the_feed_says_which_agents_the_tab_runs():
+    feed = AdvisorFeed({"REX_SESSION": "session:s", "REX_BLOCK": "block:pane"}, FakeRex())
+    feed()
+    assert feed.agents == ["claude"]
+    assert agent_of({"pid": 1, "name": "node", "argv0": "codex"}) == "codex"
+    assert agent_of({"pid": 1, "path": "/opt/homebrew/Caskroom/claude-code@latest/2.1.330/claude"}) == "claude"
+    assert agent_of({"pid": 1, "name": "zsh", "argv0": "-zsh"}) is None

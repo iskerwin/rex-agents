@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import select
 import shutil
 import signal
@@ -10,11 +12,15 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
-from rex_agents.text import Line, to_ansi
+from rex_agents.text import Line, key_at, to_ansi
 
 FRAME_SECONDS = 0.1
 HIDE_CURSOR, SHOW_CURSOR = "\x1b[?25l", "\x1b[?25h"
 ENTER_ALT, LEAVE_ALT = "\x1b[?1049h", "\x1b[?1049l"
+# Clicks reported as `ESC [ < button ; column ; row M`, 1-based.
+MOUSE_ON, MOUSE_OFF = "\x1b[?1000h\x1b[?1006h", "\x1b[?1006l\x1b[?1000l"
+MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
+OTHER_ESCAPE = re.compile(r"\x1b(\[[0-9;?<]*[ -/]*[@-~]|O.|.)?")
 
 Fetch = Callable[[], dict[str, Any]]
 # What a frame shows: the snapshot, the last refresh's error, width, height.
@@ -49,14 +55,34 @@ class _CbreakInput:
             import termios
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.saved)
 
-    def pressed(self) -> Optional[str]:
+    def pressed(self, lines: list[Line]) -> list[str]:
+        """The keys pressed since the last call; a click on `lines` counts as
+        the key of the span it lands on."""
         if self.saved is None or not select.select([sys.stdin], [], [], 0)[0]:
-            return None
-        return sys.stdin.read(1)
+            return []
+        return read_keys(os.read(sys.stdin.fileno(), 1024).decode(errors="ignore"), lines)
 
 
-def watch(fetch: Fetch, compose: Compose, color: bool, interval: int) -> None:
-    """Redraws `compose`'s rows until q, calling `fetch` every `interval` seconds."""
+def read_keys(data: str, lines: list[Line]) -> list[str]:
+    """Plain keys in order, a left click on a span with a key as that key;
+    other escape sequences, releases and other buttons are dropped."""
+    keys: list[str] = []
+    at = 0
+    for m in MOUSE.finditer(data):
+        keys += OTHER_ESCAPE.sub("", data[at:m.start()])
+        at = m.end()
+        button, column, row = int(m[1]), int(m[2]), int(m[3])
+        if button == 0 and m[4] == "M" and 0 < row <= len(lines):
+            key = key_at(lines[row - 1], column - 1)
+            if key:
+                keys.append(key)
+    return keys + list(OTHER_ESCAPE.sub("", data[at:]))
+
+
+def watch(fetch: Fetch, compose: Compose, color: bool, interval: int,
+          on_key: Optional[Callable[[str], None]] = None) -> None:
+    """Redraws `compose`'s rows until q, calling `fetch` every `interval` seconds
+    and `on_key` with any other key pressed or clicked."""
     state: dict[str, Any] = {"snapshot": None, "error": None}
     stop = threading.Event()
 
@@ -76,14 +102,19 @@ def watch(fetch: Fetch, compose: Compose, color: bool, interval: int) -> None:
     previous = signal.signal(signal.SIGTERM, on_term)
     threading.Thread(target=worker, daemon=True).start()
     shown: list[str] = []
-    _write(ENTER_ALT + HIDE_CURSOR + "\x1b[2J")
+    lines: list[Line] = []
+    _write(ENTER_ALT + HIDE_CURSOR + MOUSE_ON + "\x1b[2J")
     try:
         with _CbreakInput() as keys:
             while True:
-                if keys.pressed() in ("q", "Q", "\x03"):
-                    return
+                for key in keys.pressed(lines):
+                    if key in ("q", "Q", "\x03"):
+                        return
+                    if on_key:
+                        on_key(key)
                 width, height = terminal_size()
-                rendered = [to_ansi(line, color) for line in compose(state["snapshot"], state["error"], width, height)]
+                lines = compose(state["snapshot"], state["error"], width, height)
+                rendered = [to_ansi(line, color) for line in lines]
                 if len(rendered) != len(shown):
                     shown = [""] * len(rendered)
                     _write("\x1b[2J")
@@ -100,4 +131,4 @@ def watch(fetch: Fetch, compose: Compose, color: bool, interval: int) -> None:
     finally:
         stop.set()
         signal.signal(signal.SIGTERM, previous)
-        _write(SHOW_CURSOR + LEAVE_ALT)
+        _write(MOUSE_OFF + SHOW_CURSOR + LEAVE_ALT)

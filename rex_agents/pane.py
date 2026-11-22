@@ -8,7 +8,7 @@ running tasks down to the pane's foot. Short of rows, one line per agent.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, Sequence
 
 from rex_agents.text import MUTED, Line, Span, fit, line_width, pad_text, plain, plan_text, text_width
@@ -89,6 +89,72 @@ def costs(rows: list[dict[str, Any]], now: int) -> tuple[Optional[float], Option
             priced([r for r in rows if r["date"].startswith(today[:7])]))
 
 
+# The trend's spans: the hours of the last day, or the last 7 or 30 days.
+SPANS = ("24h", "7d", "30d")
+CHART_ROWS = 3
+BLOCKS = " ▁▂▃▄▅▆▇█"
+
+
+def tokens(row: dict[str, Any]) -> int:
+    """Tokens worked through. Cache reads are left out: every turn rereads
+    the whole context, so they would swamp what the turns added."""
+    return row["fresh"] + row["cache_write"] + row["output"]
+
+
+def trend(usage: dict[str, Any], agent: str, span: str, now: int) -> tuple[list[int], int]:
+    """One agent's tokens per bar, oldest first, and its distinct sessions."""
+    if span == "24h":
+        hour = int(datetime.fromtimestamp(now).replace(minute=0, second=0, microsecond=0).timestamp())
+        keys, rows, field = [hour - 3600 * i for i in range(23, -1, -1)], usage.get("hours", []), "hour"
+    else:
+        today = datetime.fromtimestamp(now).date()
+        days = int(span[:-1])
+        keys = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+        rows, field = usage.get("rows", []), "date"
+    bars = dict.fromkeys(keys, 0)
+    sessions: set[int] = set()
+    for row in rows:
+        if row["agent"] == agent and row[field] in bars:
+            bars[row[field]] += tokens(row)
+            sessions.update(row.get("sessions", ()))
+    return list(bars.values()), len(sessions)
+
+
+def count(n: int) -> str:
+    """`950`, `12.3K`, `3.89M`, `1.2B`: three significant figures."""
+    for size, unit in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if n >= size:
+            return f"{n / size:.3g}{unit}"
+    return str(n)
+
+
+def chart(values: list[int], width: int, rows: int = CHART_ROWS) -> list[Line]:
+    """Bars of `values` in `rows` lines of `width` cells, eighth blocks for
+    the tops. A span with no use keeps its place as an unlit ▁ on the
+    baseline, and one with any use rises at least a quarter cell, so the two
+    differ by shape as well as color. Bars sit evenly, centered: a cell short
+    of an equal slot when the slot has two cells or more, side by side a
+    cell each when not, as uneven gaps would pair them up. The newest are
+    kept when they outnumber the cells."""
+    values = values[-width:]
+    n = max(len(values), 1)
+    slot = width // n
+    bar_w = slot - 1 if slot >= 2 else 1
+    pad = (width - (n * slot - (slot - bar_w))) // 2
+    starts = [pad + i * slot for i in range(n)]
+    top = max(values, default=0)
+    levels = [0 if not v else max(2, round(v / top * rows * 8)) for v in values]
+    lines: list[Line] = []
+    for r in range(rows):
+        floor = (rows - 1 - r) * 8
+        cells = [Span(" ")] * width
+        for at, h in zip(starts, levels):
+            cell = Span(BLOCKS[1], UNLIT) if h == 0 and r == rows - 1 else Span(BLOCKS[min(max(h - floor, 0), 8)])
+            cells[at:at + bar_w] = [cell] * bar_w
+        lines.append(cells)
+    return lines
+
+
 def meter(left: Optional[float], pace: Optional[float], width: int) -> Line:
     """`width` columns: cells of ■, lit for what is left, and a bright │ between
     the cells where an even pace would have the level by now. The │ takes a
@@ -105,8 +171,8 @@ def _merge(line: Line) -> Line:
     """Adjacent spans of one style as one, so a meter is a few escapes."""
     out: Line = []
     for span in line:
-        if out and (out[-1].color, out[-1].bold) == (span.color, span.bold):
-            out[-1] = Span(out[-1].text + span.text, span.color, span.bold)
+        if out and out[-1][1:] == span[1:]:
+            out[-1] = span._replace(text=out[-1].text + span.text)
         else:
             out.append(span)
     return out
@@ -150,16 +216,19 @@ def _spread(left: Line, right: Line, width: int) -> Line:
 
 
 def build_pane(snap: Optional[dict[str, Any]], error: Optional[str], width: int, height: int, now: int,
-               advisors: Sequence[dict[str, Any]] = ()) -> list[Line]:
+               advisors: Sequence[dict[str, Any]] = (), tab_agents: Sequence[str] = (),
+               span: str = SPANS[0]) -> list[Line]:
     """Exactly `height` lines of `width` cells. `advisors` are the states
-    advisor-live shares of the Claude Code sessions in this tab."""
+    advisor-live shares of the Claude Code sessions in this tab;
+    `tab_agents` the agents running in it, whose boxes get a usage trend
+    over `span` when there is room."""
     width, height = max(width, 1), max(height, 1)
     if snap is None:
         lines: list[Line] = [[Span(error, ERROR)] if error else [Span("Loading", MUTED)]]
     elif width < 24:
         lines = [[Span("Too narrow", MUTED)]]
     else:
-        lines = _layout(snap, error, width, height, now, advisors)
+        lines = _layout(snap, error, width, height, now, advisors, tab_agents, span)
     lines = [fit(_merge(line), width) for line in lines[:height]]
     return [*lines, *[[Span(" " * width)] for _ in range(height - len(lines))]]
 
@@ -201,9 +270,10 @@ def _advisor_rows(state: dict[str, Any], inner: int, label_w: int, meter_w: int,
 
 
 def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int, now: int,
-            advisors: Sequence[dict[str, Any]]) -> list[Line]:
+            advisors: Sequence[dict[str, Any]], tab_agents: Sequence[str], span: str) -> list[Line]:
     boxes = _Boxes(width)
     accounts = snap["accounts"]
+    usage = snap.get("usage", {})
 
     def live(account: dict[str, Any]) -> list[dict[str, Any]]:
         return [w for w in account["windows"] if w.get("resets_at") is None or w["resets_at"] > now]
@@ -212,13 +282,17 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
         left = window.get("left_percent")
         return "—" if left is None else f"{round(left)}%"
 
-    today, month = costs(snap.get("usage", {}).get("rows", []), now)
+    today, month = costs(usage.get("rows", []), now)
     cost_row = _spread([Span("Today ", MUTED), Span(money(today), None, True)],
                        [Span("Month ", MUTED), Span(money(month), None, True)], boxes.inner)
     age = "failed" if error else ago(now - snap["generated_at"])
 
     account_rows = sum(max(1, len(live(a))) + 2 for a in accounts)
     account_rows += sum(len(_moments(st)) + 3 for st in advisors)
+    # Trends only when the boxes, cost and a task row still fit beside them.
+    charted = [a["agent"] for a in accounts if a["agent"] in tab_agents]
+    if height < account_rows + 3 + 3 + len(charted) * (1 + CHART_ROWS):
+        charted = []
     if height < account_rows + 3 + 3:
         compact: list[Line] = []
         for a in accounts:
@@ -258,6 +332,17 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
             ])
         if not rows:
             rows = [[Span(a.get("note") or "No quota data", MUTED)]]
+        if a["agent"] in charted:
+            values, sessions = trend(usage, a["agent"], span, now)
+            tabs: Line = []
+            for i, s in enumerate(SPANS):
+                tabs += [Span(" " if tabs else ""), Span(s, TITLE if s == span else MUTED, s == span, str(i + 1))]
+            total: Line = [Span(f"{count(sum(values))} tokens", None, True),
+                           Span(f" · {sessions} session{'s' * (sessions != 1)}", MUTED)]
+            if line_width(total) + 1 + line_width(tabs) > boxes.inner:
+                total[0] = Span(count(sum(values)), None, True)  # the word goes before the count is cut
+            rows.append(_spread(total, tabs, boxes.inner))
+            rows += chart(values, boxes.inner)
         plan = " · ".join(p for p in (a.get("plan") and plan_text(a["plan"]), a.get("workspace")) if p)
         out += boxes.box(a["agent"].capitalize(), BOX.get(a["agent"], OTHER_BOX), rows, plan,
                          "stale" if stale else "", WARN)
