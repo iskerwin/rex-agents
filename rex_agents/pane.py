@@ -1,4 +1,4 @@
-"""The Agents panel, drawn in btop's style from a snapshot. Pure: no
+"""The Agents panel, drawn as a TUI from a snapshot. Pure: no
 I/O and no clock.
 
 One box per agent with a meter per quota window, then the cost, then the
@@ -15,7 +15,7 @@ from rex_agents.text import MUTED, Line, Span, fit, line_width, pad_text, plain,
 
 
 # The terminal's own 16 colors, so the panel takes on its theme, whatever
-# that is. btop's layout: each box an outline dimmed from its hue, titles
+# that is. TUI layout: each box an outline dimmed from its hue, titles
 # bright, levels green to red, unlit meter cells the theme's bright black.
 BOX = {"claude": "2;31", "codex": "2;32", "grok": "2;34", "cost": "2;33", "tasks": "2;36"}
 OTHER_BOX = BOX["tasks"]
@@ -231,7 +231,7 @@ def _merge(line: Line) -> Line:
 
 
 class _Boxes:
-    """Boxes as btop draws them: `╭─┐title┌───┐label┌─╮`, rows between `│`
+    """TUI boxes: `╭─┐title┌───┐label┌─╮`, rows between `│`
     bars, an optional label set into the bottom edge."""
 
     def __init__(self, width: int) -> None:
