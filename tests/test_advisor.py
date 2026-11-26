@@ -116,11 +116,13 @@ class FakeRex:
     def __init__(self):
         self.views = 0
 
-    def view(self, session):
+    def view(self, scope):
+        assert scope == "block:pane"  # the panel's own block stands for its session
         self.views += 1
         return VIEW
 
-    def foreground(self, session, block):
+    def foreground(self, scope, block):
+        assert scope == "block:pane"
         pid = {"block:a": 41, "block:float": 42}.get(block)
         return {"pid": pid, "name": "claude" if pid == 41 else "zsh"} if pid else None
 
@@ -133,7 +135,7 @@ def test_the_feed_follows_this_tabs_claude_sessions(tmp_path, monkeypatch):
     log = tmp_path / "projects" / "p" / "s41.jsonl"
     log.write_text("".join(json.dumps(r) + "\n" for r in [prompt(), *advise("a", 1)]))
     rex, clock = FakeRex(), [0.0]
-    feed = AdvisorFeed({"REX_SESSION": "session:s", "REX_BLOCK": "block:pane"}, rex, lambda: clock[0])
+    feed = AdvisorFeed({"REX_BLOCK": "block:pane"}, rex, lambda: clock[0])
     [st] = feed()
     assert st["busy"] and st["turnStartedAt"] == 7 and st["counts"]["plan"] == 1
     with open(log, "a") as fh:
@@ -210,9 +212,11 @@ def test_every_meter_starts_and_ends_in_the_same_column():
 
 
 def test_the_feed_says_which_agents_the_tab_runs():
-    feed = AdvisorFeed({"REX_SESSION": "session:s", "REX_BLOCK": "block:pane"}, FakeRex())
+    # Rex sets only REX_BLOCK in a pane; that alone finds the tab.
+    feed = AdvisorFeed({"REX_BLOCK": "block:pane"}, FakeRex())
     feed()
     assert feed.agents == ["claude"]
+    assert AdvisorFeed({}, FakeRex())() == []
     assert agent_of({"pid": 1, "name": "node", "argv0": "codex"}) == "codex"
     assert agent_of({"pid": 1, "path": "/opt/homebrew/Caskroom/claude-code@latest/2.1.330/claude"}) == "claude"
     assert agent_of({"pid": 1, "name": "zsh", "argv0": "-zsh"}) is None

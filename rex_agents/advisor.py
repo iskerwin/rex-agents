@@ -194,12 +194,14 @@ def _rex(*args: str) -> Optional[dict[str, Any]]:
 class Rex:
     """The two questions the feed asks of Rex."""
 
-    def view(self, session: str) -> Optional[dict[str, Any]]:
-        return _rex("api", "call", "-s", session, "session.view", "{}")
+    # Rex takes a block ID wherever a session goes, as the session holding it.
 
-    def foreground(self, session: str, block: str) -> Optional[dict[str, Any]]:
+    def view(self, scope: str) -> Optional[dict[str, Any]]:
+        return _rex("api", "call", "-s", scope, "session.view", "{}")
+
+    def foreground(self, scope: str, block: str) -> Optional[dict[str, Any]]:
         """The program in front in a pane: its pid, name, path and argv0."""
-        info = _rex("block", "call", "-s", session, "-b", block, "process", "{}")
+        info = _rex("block", "call", "-s", scope, "-b", block, "process", "{}")
         front = info.get("foreground") if isinstance(info, dict) else None
         return front if isinstance(front, dict) and isinstance(front.get("pid"), int) else None
 
@@ -263,13 +265,14 @@ def session_log(session_id: str) -> Optional[Path]:
 class AdvisorFeed:
     """The advisor states of this tab's Claude Code sessions, as often as a
     frame asks but no more than the tab and the logs change, and in `agents`
-    which agents the tab runs. Rex sets REX_SESSION and REX_BLOCK in every
-    pane it runs; outside Rex there is no tab and nothing to show."""
+    which agents the tab runs. Rex sets REX_BLOCK in every pane it runs,
+    and the block alone finds its session (REX_SESSION may be unset);
+    outside Rex there is no tab and nothing to show."""
 
     def __init__(self, env: Optional[dict[str, str]] = None, rex: Any = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
         env = os.environ if env is None else env
-        self.session, self.block = env.get("REX_SESSION"), env.get("REX_BLOCK")
+        self.block = env.get("REX_BLOCK")
         self.rex = rex or Rex()
         self.clock = clock
         self.pids: list[int] = []
@@ -280,14 +283,14 @@ class AdvisorFeed:
         self.tab_at = self.log_at = float("-inf")
 
     def __call__(self) -> list[dict[str, Any]]:
-        if not self.session or not self.block:
+        if not self.block:
             return []
         now = self.clock()
         if now - self.tab_at >= TAB_SECONDS:
             self.tab_at = now
-            view = self.rex.view(self.session)
+            view = self.rex.view(self.block)
             if view is not None:
-                fronts = [f for f in (self.rex.foreground(self.session, b) for b in tab_blocks(view, self.block)) if f]
+                fronts = [f for f in (self.rex.foreground(self.block, b) for b in tab_blocks(view, self.block)) if f]
                 self.pids = [f["pid"] for f in fronts]
                 self.agents = sorted({a for a in map(agent_of, fronts) if a})
                 self.configured = {p: configured_advisor(p) for p in self.pids if registry(p) is not None}
