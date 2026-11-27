@@ -4,8 +4,8 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "agents-meter"
-version = "0.1.0"
-source = { git = "https://github.com/iskerwin/agents-meter#7aaccb0714ffdb939ab4854bce82714707224ff7" }
+version = "0.2.0"
+source = { git = "https://github.com/iskerwin/agents-meter#88d75ff251a320b0682d3e0f8421fef11cb0d007" }
 
 [[package]]
 name = "colorama"
