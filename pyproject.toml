@@ -7,7 +7,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
-    "agents-meter",
+    "agents-meter>=0.2.0",
 ]
 
 [project.scripts]
