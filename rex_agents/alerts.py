@@ -40,7 +40,7 @@ def changes(seen: dict[str, Any], snap: dict[str, Any], now: int) -> list[tuple[
             if left is None or resets_at is None:
                 continue
             key = f"{a['agent']}/{w['label']}"
-            name = f"{a.get('name') or a['agent'].capitalize()} {short_label(w['label'])}"
+            name = f"{a.get('name') or a['agent'].capitalize()} {short_label(w)}"
             before = seen.get(key)
             if before is not None:
                 same = abs(resets_at - before["resets_at"]) < SAME_WINDOW

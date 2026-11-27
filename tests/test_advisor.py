@@ -156,9 +156,9 @@ def test_outside_rex_there_is_no_tab():
 def snapshot():
     return {"generated_at": NOW, "usage": {"rows": []}, "tasks": [], "accounts": [
         {"agent": "claude", "name": "Claude Code", "plan": "pro", "workspace": None, "stale": False, "note": None,
-         "windows": [{"label": "5 小时", "left_percent": 80.0, "resets_at": NOW + 3600, "level": "ok"}]},
+         "windows": [{"label": "5 小时", "seconds": 18000, "left_percent": 80.0, "resets_at": NOW + 3600, "level": "ok"}]},
         {"agent": "codex", "name": "Codex", "plan": "team", "workspace": None, "stale": False, "note": None,
-         "windows": [{"label": "每周", "left_percent": 90.0, "resets_at": NOW + 86400, "level": "ok"}]},
+         "windows": [{"label": "每周", "seconds": 604800, "left_percent": 90.0, "resets_at": NOW + 86400, "level": "ok"}]},
     ]}
 
 

@@ -4,7 +4,7 @@ NOW = 1_795_286_000
 
 
 def snap(left, resets_at=NOW + 3600, **over):
-    window = {"label": "5 小时", "left_percent": left, "resets_at": resets_at}
+    window = {"label": "5 小时", "seconds": 18000, "left_percent": left, "resets_at": resets_at}
     return {"accounts": [{"agent": "claude", "name": "Claude", "stale": False, "windows": [window]}], **over}
 
 

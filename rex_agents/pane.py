@@ -36,24 +36,20 @@ BOX["advisor"] = "2;35"
 VIOLET = "35"
 MOMENTS = [("plan", "plan", VIOLET), ("error", "error", ERROR), ("done", "done", LEVEL["ok"]), ("other", "check", MUTED)]
 
-UNIT = {"分钟": "m", "小时": "h", "天": "d"}
-SECONDS = {"m": 60, "h": 3600, "d": 86400}
-
-
-def short_label(label: str) -> str:
-    """`5 小时` reads `5h`; `每周` and `Fable 每周` read `7d` and `Fable 7d`."""
-    label = re.sub(r"(\d+)\s*(分钟|小时|天)", lambda m: m[1] + UNIT[m[2]], label)
-    return label.replace("每周", "7d").strip()
-
-
-def window_seconds(label: str) -> Optional[int]:
-    m = re.search(r"(\d+)([mhd])$", short_label(label))
-    return int(m[1]) * SECONDS[m[2]] if m else None
+def short_label(window: dict[str, Any]) -> str:
+    """A 5-hour window reads `5h`, a weekly one `7d`, Fable's weekly `Fable 7d`.
+    Data saved before agents-meter 0.2 has no ``seconds`` and shows its label."""
+    seconds = window.get("seconds")
+    if not seconds:
+        return window["label"]
+    span = next(f"{seconds // n}{unit}" for n, unit in ((86400, "d"), (3600, "h"), (60, "m"), (1, "s"))
+                if seconds % n == 0)
+    return f"{window['model']} {span}" if window.get("model") else span
 
 
 def even_pace_left(window: dict[str, Any], now: int) -> Optional[float]:
     """The percent left if use had been even since the window began."""
-    span, resets_at = window_seconds(window["label"]), window.get("resets_at")
+    span, resets_at = window.get("seconds"), window.get("resets_at")
     if not span or resets_at is None:
         return None
     return min(max((resets_at - now) / span * 100, 0), 100)
@@ -377,7 +373,7 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
         for a in accounts:
             line: Line = [Span(pad_text(a["agent"].capitalize(), 7), MUTED if a.get("stale") else None, True)]
             for i, w in enumerate(live(a)):
-                line += [Span(" · " if i else "", MUTED), Span(short_label(w["label"]) + " ", MUTED),
+                line += [Span(" · " if i else "", MUTED), Span(short_label(w) + " ", MUTED),
                          Span(percent(w), MUTED if a.get("stale") else LEVEL[w["level"]], True)]
             compact.append(line)
             if a["agent"] == "claude":
@@ -388,7 +384,7 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
                                     Span(f" ×{sum(st['counts'].values())}"), *tail])
         return [*compact, _spread(cost_row, [Span(age, ERROR if error else MUTED)], width)]
 
-    labels = [short_label(w["label"]) for a in accounts for w in live(a)]
+    labels = [short_label(w) for a in accounts for w in live(a)]
     labels += [name for st in advisors for _, name, _ in _moments(st)]
     label_w = max([2, *map(text_width, labels)])
     meter_w = max(4, boxes.inner - label_w - 1 - PERCENT_W - TAIL_W)
@@ -402,7 +398,7 @@ def _layout(snap: dict[str, Any], error: Optional[str], width: int, height: int,
             cells = [Span(c.text, c.color or color) for c in meter(w.get("left_percent"), even_pace_left(w, now), meter_w)]
             reset = until(w["resets_at"] - now) if w.get("resets_at") else "—"
             rows.append([
-                Span(pad_text(short_label(w["label"]), label_w + 1), MUTED if stale else None),
+                Span(pad_text(short_label(w), label_w + 1), MUTED if stale else None),
                 *cells,
                 Span(pad_text(percent(w), PERCENT_W, True), color if w.get("left_percent") is not None else MUTED,
                      not stale),

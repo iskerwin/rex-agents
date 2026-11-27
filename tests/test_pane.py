@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from rex_agents.pane import UNLIT, build_pane, chart, costs, count, even_pace_left, meter, short_label, trend, until, window_seconds
+from rex_agents.pane import UNLIT, build_pane, chart, costs, count, even_pace_left, meter, short_label, trend, until
 from rex_agents.text import line_width, plain, to_ansi
 
 NOW = 1_795_286_000
@@ -15,9 +15,9 @@ def snapshot(**over):
         "accounts": [
             {"agent": "claude", "name": "Claude Code", "plan": "pro", "workspace": None, "stale": False, "note": None,
              "windows": [
-                 {"label": "5 小时", "left_percent": 80.0, "resets_at": NOW + 3 * 3600, "level": "ok"},
-                 {"label": "Fable 每周", "left_percent": 15.0, "resets_at": NOW + 3 * 86400, "level": "critical"},
-                 {"label": "每周", "left_percent": 50.0, "resets_at": NOW - 60, "level": "ok"},
+                 {"label": "5 小时", "seconds": 18000, "left_percent": 80.0, "resets_at": NOW + 3 * 3600, "level": "ok"},
+                 {"label": "每周 (Fable)", "seconds": 604800, "model": "Fable", "left_percent": 15.0, "resets_at": NOW + 3 * 86400, "level": "critical"},
+                 {"label": "每周", "seconds": 604800, "left_percent": 50.0, "resets_at": NOW - 60, "level": "ok"},
              ]},
             {"agent": "grok", "name": "Grok", "plan": "Free", "workspace": None, "stale": True,
              "note": "用量接口返回 HTTP 401", "windows": []},
@@ -83,9 +83,12 @@ def test_pace_notch_sits_between_cells_and_hides_none():
 
 
 def test_labels_spans_and_pace():
-    assert short_label("5 小时") == "5h" and short_label("Fable 每周") == "Fable 7d"
-    assert window_seconds("5 小时") == 18000 and window_seconds("每周") == 604800 and window_seconds("月度") is None
-    assert even_pace_left({"label": "5 小时", "resets_at": NOW + 9000}, NOW) == 50
+    five, week = {"label": "5 小时", "seconds": 18000, "seconds": 18000}, {"label": "每周 (Fable)", "seconds": 604800, "model": "Fable"}
+    assert short_label(five) == "5h" and short_label(week) == "Fable 7d"
+    assert short_label({"label": "每周", "seconds": None}) == "每周"  # saved before agents-meter 0.2
+    assert even_pace_left({**five, "resets_at": NOW + 9000}, NOW) == 50
+    assert even_pace_left({**week, "resets_at": NOW + 302400}, NOW) == 50
+    assert even_pace_left({"label": "每周", "resets_at": NOW + 9000}, NOW) is None
     assert until(3 * 86400 + 5 * 3600) == "3d5h" and until(2 * 3600 + 41 * 60) == "2h41m"
 
 
